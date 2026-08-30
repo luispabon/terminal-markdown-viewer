@@ -111,6 +111,7 @@ func TestRunArgumentErrors(t *testing.T) {
 	}{
 		{name: "zero width", args: []string{"--width", "0"}},
 		{name: "negative width", args: []string{"--width", "-1"}},
+		{name: "non-numeric width", args: []string{"--width", "abc"}},
 		{name: "two files", args: []string{"one.md", "two.md"}},
 		{name: "unknown option", args: []string{"--unknown"}},
 	}
@@ -170,6 +171,16 @@ func TestRunWriterError(t *testing.T) {
 	}
 }
 
+func TestRunShortWrite(t *testing.T) {
+	var stderr bytes.Buffer
+	status := run(nil, strings.NewReader("text"), shortWriter{}, &stderr, func(string, int, string) (string, error) {
+		return "rendered", nil
+	})
+	if status != 1 || !strings.Contains(stderr.String(), "write output") || !strings.Contains(stderr.String(), io.ErrShortWrite.Error()) {
+		t.Fatalf("status = %d, stderr = %q", status, stderr.String())
+	}
+}
+
 func TestRenderMarkdown(t *testing.T) {
 	output, err := render("dark", 80, "# Heading\n\nSome **bold** text.\n\n- first item\n")
 	if err != nil {
@@ -201,5 +212,10 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
+type shortWriter struct{}
+
+func (shortWriter) Write([]byte) (int, error) { return 0, nil }
+
 var _ io.Reader = errorReader{}
 var _ io.Writer = failingWriter{}
+var _ io.Writer = shortWriter{}
