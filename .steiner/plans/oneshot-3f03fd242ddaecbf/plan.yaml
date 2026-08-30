@@ -1,0 +1,70 @@
+steps:
+  - id: step-1
+    title: Scaffold module and project automation
+    scope: Initialize the Go module metadata and build automation needed by the command implementation.
+    decisions: [D1, D5, D7]
+    approach: >-
+      Create go.mod for github.com/luispabon/terminal-markdown-viewer with go 1.25.8 and a direct requirement on charm.land/glamour/v2 v2.0.1. Replace the empty .gitignore with /bin/ so local builds are untracked. Add a Makefile whose build target creates bin/ and runs go build -o bin/markdown-viewer ./cmd/markdown-viewer, whose test target runs go test ./..., and whose check target validates formatting with gofmt -l before go vet, go build, and go test. Do not run tidy or build until the command source exists in step-2.
+    files: [go.mod, .gitignore, Makefile]
+    constraints:
+      - Do not add AGENTS.md, CI files, or third-party lint configuration.
+      - Keep Make targets POSIX-shell compatible and only require the Go toolchain plus make.
+      - The build target must produce bin/markdown-viewer exactly.
+    acceptance:
+      - go.mod declares the selected module, Go version, and direct Glamour v2.0.1 requirement.
+      - make build, make test, and make check name their intended commands without parsing errors.
+      - /bin/ is ignored by Git.
+    verification:
+      - make -n build
+      - make -n test
+      - make -n check
+    delegate_profile: code
+
+  - id: step-2
+    title: Implement renderer CLI and unit coverage
+    scope: Add the executable entrypoint and internal viewer package that parse options, select input, render Markdown, and report failures.
+    decisions: [D1, D2, D3, D4, D6]
+    depends_on: [step-1]
+    approach: >-
+      Add cmd/markdown-viewer/main.go as a thin os.Exit call to viewer.Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr). In internal/viewer, expose Run and use unexported execution logic that accepts input/output streams and a renderer function returning rendered text and an error. Parse flags with flag.FlagSet configured for ContinueOnError: support -h/--help, --style string defaulting to dark, --width integer defaulting to 80, and zero or one positional FILE. Send generated usage/help text to stdout and return status 0 for help; reject width less than one and more than one positional argument with a status-2 diagnostic on stderr. Read FILE with os.ReadFile, or supplied stdin when FILE is absent or exactly '-'. The production renderer function must create Glamour with WithStandardStyle, WithWordWrap, and WithPreservedNewLines, then render the supplied Markdown. Report file, renderer construction/rendering, and stdout write errors contextually on stderr with status 1. Add table-driven tests with buffers and temporary files for stdin, explicit dash stdin, file input, style and width options, help destination/status, invalid width, excess arguments, unreadable paths, invalid styles, injected renderer failures, injected writer failures, and representative Markdown output. Assert stable user-visible content and status rather than full ANSI streams.
+    files: [cmd/markdown-viewer/main.go, internal/viewer/viewer.go, internal/viewer/viewer_test.go]
+    constraints:
+      - Preserve final renderer output without trimming or post-processing it.
+      - Do not add terminal probing, pager behavior, custom stylesheets, or a second rendering dependency.
+      - Keep filesystem input limited to one user-supplied path; no directory traversal features.
+    acceptance:
+      - markdown-viewer renders Markdown from stdin, a path, and '-' to stdout.
+      - --style and --width control renderer setup; invalid argument forms return status 2 and clear diagnostics.
+      - Help returns status 0 to stdout, and runtime failures return status 1 to stderr without panics.
+      - Unit tests cover success, parsing, input, renderer, and output failure branches and pass under the race detector.
+    verification:
+      - gofmt -w cmd/markdown-viewer/main.go internal/viewer/*.go
+      - go vet ./...
+      - go build ./...
+      - go test ./...
+      - go test -race ./...
+    delegate_profile: code
+
+  - id: step-3
+    title: Document usage and validate release artifacts
+    scope: Add user documentation, resolve module dependencies, and run final project checks against the completed CLI.
+    decisions: [D1, D2, D3, D5, D6, D7]
+    depends_on: [step-2]
+    approach: >-
+      Add README.md describing the tool, Go 1.25.8 prerequisite, make build/test/check, binary path, direct CLI syntax, one-file and stdin usage, options before FILE, default style and width, built-in style names, --style notty guidance for redirected output, and documented exit statuses. Run go mod tidy twice after all imports exist to generate go.sum and prove dependency metadata is stable. Run Make targets against the completed source; no README claims may exceed implemented behavior.
+    files: [README.md, go.mod, go.sum]
+    constraints:
+      - Do not add AGENTS.md, CI files, or functionality not implemented in step-2.
+      - Keep examples copyable and use markdown-viewer as the binary name.
+    acceptance:
+      - README accurately matches final command behavior and Make targets.
+      - A second go mod tidy makes no changes to go.mod or go.sum.
+      - make build creates bin/markdown-viewer, make test passes, and make check passes.
+    verification:
+      - go mod tidy
+      - go mod tidy
+      - make build
+      - make test
+      - make check
+      - go test -race ./...
+    delegate_profile: code
